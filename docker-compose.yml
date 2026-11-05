@@ -70,6 +70,12 @@ services:
           echo "ASKAI_ADMIN_BACKEND_SERVICE_TOKEN=$$admin_backend_service_token"
         } >> "$$temp_file"
         mv "$$temp_file" "$$secret_file"
+        # P0 secret split: sandbox-manager runs as UID 10001 and only sees its own token.
+        sandbox_token="$$(sed -n 's/^MOVO_SANDBOX_MANAGER_TOKEN=//p' "$$secret_file" | head -n 1)"
+        printf 'MOVO_SANDBOX_MANAGER_TOKEN=%s\n' "$$sandbox_token" > /run/askai-secrets/sandbox.env.tmp
+        chown 10001:10001 /run/askai-secrets/sandbox.env.tmp
+        chmod 0400 /run/askai-secrets/sandbox.env.tmp
+        mv /run/askai-secrets/sandbox.env.tmp /run/askai-secrets/sandbox.env
         echo "MOVO deployment secrets are ready."
         echo "After services become healthy, open http://localhost:$${MOVO_PORT:-3000}/admin/setup"
 
@@ -127,7 +133,14 @@ services:
     pull_policy: ${MOVO_PULL_POLICY:-missing}
     restart: unless-stopped
     environment:
-      MOVO_SANDBOX_MANAGER_URL: ${MOVO_SANDBOX_MANAGER_URL:-}
+      # Fail-closed: plugins only run in sandbox-manager (Kata) containers.
+      MOVO_SANDBOX_MANAGER_URL: ${MOVO_SANDBOX_MANAGER_URL:-http://sandbox-manager:8300}
+      MOVO_TENANT_MODE: ${MOVO_TENANT_MODE:-single}
+      # Non-model outbound traffic goes through the audited egress allowlist.
+      HTTPS_PROXY: http://sandbox-egress:3128
+      HTTP_PROXY: http://sandbox-egress:3128
+      NO_PROXY: chat-api,sandbox-manager,localhost,127.0.0.1
+      NODE_USE_ENV_PROXY: "1"
       MOVO_SANDBOX_PLUGIN_IDLE_SECONDS: ${MOVO_SANDBOX_PLUGIN_IDLE_SECONDS:-900}
     volumes:
       - deployment-secrets:/run/askai-secrets:ro
@@ -136,9 +149,8 @@ services:
       bootstrap:
         condition: service_completed_successfully
     networks:
-      # DSH installs npm plugins and runs network-backed tools in this container.
-      # Keep backend for private service access and public for outbound traffic.
-      - public
+      # P0: no direct internet. npm installs and network-backed tools run in
+      # sandbox-manager plugin runtimes; other egress goes via sandbox-egress.
       - backend
     healthcheck:
       test:
@@ -176,7 +188,8 @@ services:
       DSH_RUNTIME_STORAGE_ROOT: /data/dsh-runtime
       DSH_TOOL_GATEWAY_URL: http://chat-api:8000/internal/dsh/tools
       DSH_MODEL_GATEWAY_URL: http://chat-api:8000/internal/dsh/model/generate
-      MOVO_SANDBOX_MANAGER_URL: ${MOVO_SANDBOX_MANAGER_URL:-}
+      # Fail-closed: with no reachable sandbox-manager, code execution is refused.
+      MOVO_SANDBOX_MANAGER_URL: ${MOVO_SANDBOX_MANAGER_URL:-http://sandbox-manager:8300}
       MOVO_SANDBOX_WORKSPACE_ROOT: /workspaces
     volumes:
       - deployment-secrets:/run/askai-secrets:ro
@@ -207,8 +220,13 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    environment:
+      MOVO_EGRESS_DEFAULT_POLICY: ${MOVO_EGRESS_DEFAULT_POLICY:-deny}
+      MOVO_EGRESS_ALLOW_DOMAINS: ${MOVO_EGRESS_ALLOW_DOMAINS:-}
     networks:
       - public
+      # Reachable from backend only so dsh-runtime-host can use it as its proxy.
+      - backend
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',3128),2); s.close()"]
       interval: 10s
@@ -219,6 +237,52 @@ services:
     image: ${MOVO_IMAGE_PREFIX:-ghcr.io/himovo/movo}-sandbox-script:${MOVO_VERSION:-latest}
     profiles: ["sandbox-image"]
     entrypoint: ["true"]
+
+  sock-proxy:
+    # The ONLY service that mounts docker.sock. Allowlists the Docker API and
+    # validates every container create (Runtime=kata, no privileges, sandbox
+    # volumes with Subpath only). Root inside is required to open the socket.
+    image: ${MOVO_IMAGE_PREFIX:-ghcr.io/himovo/movo}-sock-proxy:${MOVO_VERSION:-latest}
+    profiles: ["sandbox"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      MOVO_SANDBOX_RUNTIME: ${MOVO_SANDBOX_RUNTIME:-kata}
+      MOVO_TENANT_MODE: ${MOVO_TENANT_MODE:-single}
+      MOVO_SANDBOX_ALLOW_RUNC: ${MOVO_SANDBOX_ALLOW_RUNC:-}
+      MOVO_SANDBOX_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-movo}
+      MOVO_VOLUME_PREFIX: ${MOVO_VOLUME_PREFIX:-movo}
+      MOVO_IMAGE_PREFIX: ${MOVO_IMAGE_PREFIX:-ghcr.io/himovo/movo}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:2375/_ping', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  sandbox-volume-init:
+    # One-shot, runs as root once: hands sandbox-manager state dirs to UID 10001.
+    image: ${MOVO_ALPINE_IMAGE:-alpine:3.21}
+    profiles: ["sandbox"]
+    restart: "no"
+    volumes:
+      - sandbox-workspaces:/workspaces
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        marker=/workspaces/.movo-perms-v1
+        if [ ! -f "$$marker" ]; then
+          mkdir -p /workspaces/.manager-state /workspaces/plugin-runtimes /workspaces/skill-cache
+          chown -R 10001:10001 /workspaces/.manager-state /workspaces/plugin-runtimes
+          chown 10001:10001 /workspaces
+          touch "$$marker"
+        fi
 
   sandbox-manager:
     image: ${MOVO_IMAGE_PREFIX:-ghcr.io/himovo/movo}-sandbox-manager:${MOVO_VERSION:-latest}
@@ -246,14 +310,25 @@ services:
       MOVO_SKILL_DEPENDENCY_STEP_TIMEOUT: ${MOVO_SKILL_DEPENDENCY_STEP_TIMEOUT:-480}
       MOVO_SKILL_DEPENDENCY_BUILD_TIMEOUT: ${MOVO_SKILL_DEPENDENCY_BUILD_TIMEOUT:-1800}
       MOVO_SKILL_DEPENDENCY_RETRIES: ${MOVO_SKILL_DEPENDENCY_RETRIES:-1}
+      # P0 sandbox policy (see SANDBOX_CONTAINERS.md).
+      MOVO_DOCKER_HOST: http://sock-proxy:2375
+      MOVO_SANDBOX_RUNTIME: ${MOVO_SANDBOX_RUNTIME:-kata}
+      MOVO_TENANT_MODE: ${MOVO_TENANT_MODE:-single}
+      MOVO_SANDBOX_ALLOW_RUNC: ${MOVO_SANDBOX_ALLOW_RUNC:-}
+      MOVO_SANDBOX_PROBE_INTERVAL: ${MOVO_SANDBOX_PROBE_INTERVAL:-600}
+      MOVO_SANDBOX_AUDIT_LOG: /workspaces/.manager-state/audit.log
+      ASKAI_RUNTIME_SECRETS_FILE: /run/askai-secrets/sandbox.env
     volumes:
       - deployment-secrets:/run/askai-secrets:ro
       - sandbox-workspaces:/workspaces
       - dsh-runtime-data:/runtime-data
-      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       bootstrap:
         condition: service_completed_successfully
+      sandbox-volume-init:
+        condition: service_completed_successfully
+      sock-proxy:
+        condition: service_healthy
       sandbox-egress:
         condition: service_healthy
     networks:
@@ -262,7 +337,7 @@ services:
       test:
         - CMD-SHELL
         - >-
-          set -a; . /run/askai-secrets/runtime.env; set +a;
+          set -a; . /run/askai-secrets/sandbox.env; set +a;
           python -c "import os,urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8300/health',headers={'Authorization':'Bearer '+os.environ['MOVO_SANDBOX_MANAGER_TOKEN']}),timeout=3).read()"
       interval: 10s
       timeout: 5s

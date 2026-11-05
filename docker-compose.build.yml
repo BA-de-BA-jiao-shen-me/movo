@@ -16,6 +16,12 @@ services:
       args:
         MOVO_PIP_INDEX_URL: ${MOVO_PIP_INDEX_URL:-}
 
+  sock-proxy:
+    pull_policy: build
+    build:
+      context: ./services/sock-proxy
+      dockerfile: Dockerfile
+
   sandbox-egress:
     pull_policy: build
     build:
