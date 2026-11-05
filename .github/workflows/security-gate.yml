@@ -64,10 +64,15 @@ jobs:
           category: osv-scanner
 
   trivy-fs:
+    # Blocks *newly introduced* fixable CRITICAL findings (compared with the
+    # base commit). The existing backlog is tracked separately and the
+    # threshold moves to HIGH once it is cleared.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Trivy filesystem gate (fixable CRITICAL)
+        with:
+          fetch-depth: 0
+      - name: Trivy scan (head)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
@@ -75,8 +80,28 @@ jobs:
           scanners: vuln
           severity: CRITICAL
           ignore-unfixed: true
-          exit-code: "1"
-          skip-dirs: qa/node_modules,apps/user-web/node_modules,apps/admin-web/node_modules
+          format: json
+          output: trivy-head.json
+          skip-dirs: base-tree
+      - name: Check out base tree
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ -z "${BASE_SHA}" || "${BASE_SHA}" =~ ^0+$ ]]; then BASE_SHA="$(git rev-parse HEAD^)"; fi
+          git worktree add --detach base-tree "${BASE_SHA}"
+      - name: Trivy scan (base)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: base-tree
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          format: json
+          output: trivy-base.json
+          skip-setup-trivy: true
+      - name: Fail on new fixable CRITICAL findings
+        run: python scripts/release/compare_trivy.py trivy-base.json trivy-head.json
 
   trivy-images:
     runs-on: ubuntu-latest
