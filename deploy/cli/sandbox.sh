@@ -25,6 +25,9 @@ movo_sandbox_preflight() {
     movo_msg sandbox_engine_old "${engine_version:-unknown}" >&2
     return 2
   fi
+  # P0: policy contract (kata|runc, multi-tenant forbids runc) + Kata host checks.
+  movo_sandbox_policy_check || return 2
+  movo_kata_host_check || return 2
 }
 
 movo_sandbox_enabled() {
