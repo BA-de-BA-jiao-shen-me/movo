@@ -1,86 +1,76 @@
-<p align="center">
-  <img src="apps/user-web/public/movo-logo.png" alt="MOVO" width="180">
-</p>
+# MOVO
 
-<h1 align="center">MOVO</h1>
+可私有化部署的企业 Agent 平台。
 
-<p align="center">
-  A self-hosted enterprise Agent platform.
-</p>
+## 项目简介
 
-<p align="center">
-  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
-</p>
+MOVO 是一个可在自己服务器上部署的企业 Agent 平台，通过 Docker Compose 一次启动用户工作台、管理后台、API、文档处理、检索和基础设施。模型服务由部署者自行配置，应用数据、企业知识和运行服务都保留在自己的环境中。
 
-## Overview
+主要能力：
 
-MOVO is an enterprise Agent platform you deploy on your own servers. One Docker Compose deployment starts the user workspace, admin console, APIs, document processing, retrieval and infrastructure. You configure your own model providers, and application data, enterprise knowledge and runtime services stay in your environment.
-
-Key capabilities:
-
-| Capability | Description |
+| 能力 | 说明 |
 | --- | --- |
-| Agent Runtime | Built-in Runtime Host with planning, tool calls, Skills, sub-agents and controlled execution. |
-| Knowledge & research | Search internal documents and public sources, run multi-step research with citations. |
-| Document & multimodal understanding | Parse PDF, DOCX, XLSX, PPTX, CSV, Markdown, plus images and charts inside documents. |
-| Content & file generation | Produce reports, articles, PPTX decks, spreadsheets, PDF and Markdown. |
-| Skills, tools & MCP | Reuse workflows and connect business systems over HTTP or MCP. |
-| Automation & governance | Scheduled tasks, approvals for sensitive actions, execution tracing and artifact retention. |
-| Admin console | Manage organizations, users, roles, models, knowledge, Skills, tools, audit logs and health. |
+| Agent Runtime | 内置 Runtime Host，支持任务规划、工具调用、Skill、子智能体和受控执行。 |
+| 企业知识与研究 | 检索内部文档和公开信息，执行多轮研究并保留引用。 |
+| 文档与多模态理解 | 解析 PDF、DOCX、XLSX、PPTX、CSV、Markdown 以及文档中的图片和图表。 |
+| 内容与文件生成 | 生成报告、文章、PPTX、电子表格、PDF 和 Markdown。 |
+| Skill、工具与 MCP | 复用工作流，通过 HTTP 或 MCP 服务连接业务系统。 |
+| 自动化与治理 | 定时任务、敏感操作审批、执行追踪和产物留存。 |
+| 管理后台 | 管理组织、用户、角色、模型、知识、Skill、工具、审计记录和运行状态。 |
 
-## Quick start
+## 快速启动
 
-Requirements:
+环境要求：
 
 - Git
-- Docker Desktop, or Docker Engine with Docker Compose v2
-- At least 8 GB free RAM and 20 GB free disk
-- Credentials for at least one compatible model API
+- Docker Desktop，或 Docker Engine 与 Docker Compose v2
+- 至少 8 GB 可用内存、20 GB 可用磁盘
+- 至少一个兼容模型 API 的访问凭证
 
-On Linux / macOS:
+在 Linux / macOS 上执行：
 
 ```bash
 git clone https://github.com/BA-de-BA-jiao-shen-me/movo.git
 cd movo
 chmod +x movo
-./movo up
+./movo --lang zh-CN --mirror cn up
 ```
 
-Then open `http://localhost:3000/admin/setup` to finish setup (create the organization and first account, connect a default chat model; optionally configure Embedding, Rerank, Vision, image generation and web search).
+然后打开 `http://localhost:3000/admin/setup` 完成初始化（创建组织和初始账号、连接默认对话模型，可选配置 Embedding、Rerank、Vision、图片生成和联网搜索）。
 
-Notes:
+说明：
 
-- The launcher pulls prebuilt images, waits for services to become healthy and prints the setup URL. No `.env` file is needed.
-- In mainland China, add `--mirror cn` (e.g. `./movo --lang zh-CN --mirror cn up`) to use the domestic mirror; otherwise GHCR and Docker Hub are used. Upgrade with `./movo update` (same flags).
-- You can also run `docker compose up -d` directly (without the launcher's retries and health waits).
-- On Windows, run MOVO inside an Ubuntu distribution on WSL 2 (check with `wsl -l -v`, enter with `wsl -d Ubuntu`), not inside the internal `docker-desktop` distribution.
+- 启动器会拉取预构建镜像、等待服务健康并输出初始化地址，无需创建 `.env`。
+- `--mirror cn` 使用国内镜像源；不带该参数时使用 GHCR 和 Docker Hub。升级时执行 `./movo --lang zh-CN --mirror cn update`。
+- 也可以直接执行 `docker compose up -d` 启动（不含启动器的重试与健康等待）。
+- Windows 用户请在 WSL 2 的 Ubuntu 发行版中运行（先用 `wsl -l -v` 确认，再 `wsl -d Ubuntu` 进入），不要在 `docker-desktop` 内部发行版中执行。
 
-After setup:
+初始化完成后：
 
-| Entry | Default URL | Purpose |
+| 入口 | 默认地址 | 用途 |
 | --- | --- | --- |
-| User workspace | `http://localhost:3000/` | Chat, research, knowledge, files and content generation |
-| Admin console | `http://localhost:3000/admin/` | Users, models, knowledge, Skills, tools and governance |
-| Setup wizard | `http://localhost:3000/admin/setup` | First-time setup only |
+| 用户工作台 | `http://localhost:3000/` | 对话、研究、知识、文件和内容生成 |
+| 管理后台 | `http://localhost:3000/admin/` | 用户、模型、知识、Skill、工具和治理配置 |
+| 初始化向导 | `http://localhost:3000/admin/setup` | 仅用于首次初始化 |
 
-## Operations
+## 常用运维命令
 
 ```bash
 ./movo status
 ./movo logs chat-api
 ./movo restart
 ./movo update
-./movo fix       # only when an upgrade reports a conversation sequence conflict; pauses chat
+./movo fix       # 仅在升级提示会话序号冲突时使用；会暂时停止聊天
 ./movo backup /path/on/a/large-disk/movo-backup
-./movo down       # stop containers, keep data
-./movo down -v    # permanently delete MOVO data after confirmation
+./movo down       # 停止容器并保留数据
+./movo down -v    # 确认后永久删除 MOVO 数据
 ```
 
-Pin a version tag instead of `latest` in production, and back up before upgrading.
+生产部署建议固定版本标签而不是使用 `latest`，升级前先备份数据。
 
-## Configuration
+## 配置
 
-No `.env` is required by default. To change the port, public URL, image version or volume prefix:
+默认不需要 `.env`。如需修改端口、访问地址、镜像版本或数据卷前缀：
 
 ```bash
 cp .env.example .env
@@ -94,55 +84,55 @@ MOVO_VERSION=vX.Y.Z
 PUBLIC_BASE_URL=https://movo.example.com
 ```
 
-Keep `MOVO_VOLUME_PREFIX` unchanged after the first start. DNS, TLS and reverse proxies are up to the operator. If you pin `MOVO_VERSION`, the selected registry must have that tag.
+首次启动后请保持 `MOVO_VOLUME_PREFIX` 不变。DNS、TLS 证书和反向代理由部署者自行配置。若在 `.env` 中固定了 `MOVO_VERSION`，所选镜像源必须存在相同标签。
 
-## Build from source
+## 从源码构建
 
 ```bash
-./movo up --build   # build and start
-./movo build        # build images only
+./movo up --build   # 构建并启动
+./movo build        # 只构建镜像
 ```
 
-Source builds download Playwright, LibreOffice, Docling and model assets, so they take more time and disk than prebuilt images. Do not combine `--build` with `--mirror cn`.
+源码构建需下载 Playwright、LibreOffice、Docling 和模型资源，耗时和磁盘占用比预构建镜像更多。`--build` 不要与 `--mirror cn` 合用。
 
-## Architecture
+## 系统架构
 
 ```mermaid
 flowchart LR
-    U[User workspace] --> G[Gateway]
-    A[Admin console] --> G
+    U[用户工作台] --> G[统一网关]
+    A[管理后台] --> G
     G --> C[Chat API]
     G --> M[Admin API]
     C --> D[Runtime Host]
-    C --> P[Document service]
+    C --> P[文档服务]
     M --> P
     C --> S[(MongoDB / Redis / Weaviate)]
     M --> S
     P --> S
 ```
 
-The default deployment starts 12 services: gateway, two web apps, three application APIs, Runtime Host, document worker, MongoDB, Redis, Weaviate and a one-shot secrets bootstrap.
+默认部署启动 12 个服务：统一网关、两个 Web 应用、三个应用 API、Runtime Host、文档 Worker、MongoDB、Redis、Weaviate，以及一次性的密钥初始化服务。
 
-## Repository layout
+## 仓库结构
 
-| Path | Component |
+| 路径 | 组件 |
 | --- | --- |
-| `apps/user-web/` | Vue 3 user workspace |
-| `apps/admin-web/` | Vue 3 setup and admin console |
-| `services/chat-api/` | FastAPI chat, task, Agent and Skill service |
+| `apps/user-web/` | Vue 3 用户工作台 |
+| `apps/admin-web/` | Vue 3 初始化与管理后台 |
+| `services/chat-api/` | FastAPI 对话、任务、Agent 和 Skill 服务 |
 | `services/chat-api/dsh/runtime-host/` | Node.js Runtime Host |
-| `services/admin-api/` | FastAPI organization, user, model and platform API |
-| `services/document-parser/` | Document parsing, preview, retrieval API and worker |
-| `deploy/` | Bootstrap and gateway configuration |
+| `services/admin-api/` | FastAPI 组织、用户、模型和平台管理 API |
+| `services/document-parser/` | 文档解析、预览、检索 API 和 Worker |
+| `deploy/` | 初始化与统一网关配置 |
 
-## Development checks
+## 开发检查
 
-Before submitting changes, run the checks in [CONTRIBUTING.md](CONTRIBUTING.md), at minimum:
+提交改动前请按 [CONTRIBUTING.md](CONTRIBUTING.md) 运行检查，至少执行：
 
 ```bash
 python3 scripts/check_open_source_hygiene.py
 ```
 
-## License
+## 许可证
 
-See [LICENSE](LICENSE).
+见 [LICENSE](LICENSE)。
