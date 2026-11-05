@@ -52,3 +52,21 @@ def test_allow_mode_and_invalid_mode(tmp_path) -> None:
 def test_metadata_still_blocked_even_in_allow_mode() -> None:
     with pytest.raises(PermissionError):
         asyncio.run(proxy._public_destination("169.254.169.254", 80))
+
+
+def test_client_closing_without_request_is_silent() -> None:
+    async def scenario() -> None:
+        server = await asyncio.start_server(proxy._handle, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        loop = asyncio.get_running_loop()
+        errors: list = []
+        loop.set_exception_handler(lambda _loop, ctx: errors.append(ctx))
+        _, writer = await asyncio.open_connection("127.0.0.1", port)
+        writer.close()
+        await writer.wait_closed()
+        await asyncio.sleep(0.2)
+        server.close()
+        await server.wait_closed()
+        assert errors == []
+
+    asyncio.run(scenario())

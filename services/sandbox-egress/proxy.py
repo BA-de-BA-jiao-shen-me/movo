@@ -82,6 +82,7 @@ async def _public_destination(host: str, port: int) -> tuple[str, int]:
         ip = ipaddress.ip_address(address[0])
         if ip.is_global:
             return str(ip), port
+    audit("egress.denied", host=host, reason="resolves to non-public address")
     raise PermissionError("Destination is not public")
 
 
@@ -131,13 +132,18 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
                 raise ValueError("Unsupported proxy method")
             await upstream_writer.drain()
             await asyncio.gather(_pipe(reader, upstream_writer), _pipe(upstream_reader, writer))
+        except asyncio.IncompleteReadError:
+            pass  # client closed before sending a request (e.g. TCP health checks)
         except (ValueError, PermissionError, asyncio.TimeoutError, asyncio.LimitOverrunError, OSError):
             writer.write(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
         finally:
             if upstream is not None:
                 upstream.close()
             writer.close()
-            await writer.wait_closed()
+            try:
+                await writer.wait_closed()
+            except (ConnectionError, OSError):
+                pass
 
 
 async def main() -> None:

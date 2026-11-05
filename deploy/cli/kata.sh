@@ -79,7 +79,7 @@ movo_doctor() {
   runtimes="$("${DOCKER_BIN}" info --format '{{json .Runtimes}}' 2>/dev/null || true)"
   movo_runtime_registered "${runtimes}" kata && kata=true
   health="$(movo_compose exec -T sandbox-manager sh -c \
-    '. /run/askai-secrets/sandbox.env; python -c "import os,urllib.request;print(urllib.request.urlopen(urllib.request.Request(\"http://127.0.0.1:8300/health\",headers={\"Authorization\":\"Bearer \"+os.environ[\"MOVO_SANDBOX_MANAGER_TOKEN\"]}),timeout=5).read().decode())"' \
+    'set -a; . /run/askai-secrets/sandbox.env; set +a; python -c "import os,urllib.request;print(urllib.request.urlopen(urllib.request.Request(\"http://127.0.0.1:8300/health\",headers={\"Authorization\":\"Bearer \"+os.environ[\"MOVO_SANDBOX_MANAGER_TOKEN\"]}),timeout=5).read().decode())"' \
     2>/dev/null || true)"
   if [[ "${json}" == true ]]; then
     printf '{"docker_version":"%s","docker_version_ok":%s,"kvm":%s,"kata_registered":%s,"runtime":"%s","tenant_mode":"%s","policy_ok":%s,"manager_health":%s}\n' \
