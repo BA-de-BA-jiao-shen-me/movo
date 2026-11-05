@@ -47,6 +47,14 @@ Semantics
 
 from __future__ import annotations
 
+
+import os as _os
+
+# Production fails closed without a sandbox-manager (P0). Unit tests that run
+# script plugins locally opt into the explicit developer mode; tests that
+# assert fail-closed behaviour unset it themselves.
+_os.environ.setdefault("MOVO_DEV_INPROCESS_SCRIPTS", "1")
+
 import asyncio
 import os
 import time
