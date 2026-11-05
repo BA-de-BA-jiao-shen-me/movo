@@ -1,0 +1,108 @@
+name: Security Gate
+
+# P0 gate: sandbox unit tests + dependency/image scanning.
+# Phase 1 blocks new *fixable CRITICAL* findings; raise to HIGH once the
+# existing backlog is cleared. All third-party actions are pinned to SHAs.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sandbox-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install -r services/sandbox-manager/requirements.txt pytest hypothesis
+      - name: sandbox-manager
+        working-directory: services/sandbox-manager
+        run: python -m pytest -q
+      - name: sock-proxy
+        working-directory: services/sock-proxy
+        run: python -m pytest -q
+      - name: sandbox-egress
+        working-directory: services/sandbox-egress
+        run: python -m pytest -q test_proxy.py
+      - name: Kata preflight (CLI)
+        run: |
+          bash scripts/test_kata_preflight.sh
+          bash scripts/test_cli_module_loading.sh
+
+  osv-scanner:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: OSV-Scanner (report)
+        uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+        continue-on-error: true
+        with:
+          scan-args: |-
+            --recursive
+            --format=sarif
+            --output=osv.sarif
+            ./
+      - name: Upload OSV SARIF
+        if: always() && hashFiles('osv.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          sarif_file: osv.sarif
+          category: osv-scanner
+
+  trivy-fs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Trivy filesystem gate (fixable CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          skip-dirs: qa/node_modules,apps/user-web/node_modules,apps/admin-web/node_modules
+
+  trivy-images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: sandbox-manager, context: services/sandbox-manager }
+          - { name: sock-proxy, context: services/sock-proxy }
+          - { name: sandbox-egress, context: services/sandbox-egress }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build ${{ matrix.name }}
+        run: docker build -t movo-gate/${{ matrix.name }}:ci ${{ matrix.context }}
+      - name: Non-root check
+        run: |
+          user="$(docker image inspect --format '{{.Config.User}}' movo-gate/${{ matrix.name }}:ci)"
+          echo "Config.User=${user}"
+          if [[ "${{ matrix.name }}" != sock-proxy && ( -z "${user}" || "${user%%:*}" == 0 || "${user%%:*}" == root ) ]]; then
+            echo "::error::${{ matrix.name }} must run as a non-root user"; exit 1
+          fi
+      - name: Trivy image gate (fixable CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: movo-gate/${{ matrix.name }}:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
