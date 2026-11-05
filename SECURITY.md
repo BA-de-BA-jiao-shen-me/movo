@@ -1,8 +1,7 @@
 # Security Policy
 
 Please do not disclose suspected vulnerabilities in public issues. Use GitHub's
-private vulnerability reporting feature for this repository. If that feature is
-not available, email `support@himovo.com` before sharing details. Include the
+private vulnerability reporting feature for this repository. Include the
 affected commit or release, impact, reproduction steps and any suggested
 mitigation, but never include real credentials or customer data.
 
