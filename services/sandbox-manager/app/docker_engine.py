@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 
 import httpx
+
+from .sandbox_policy import SandboxPolicy, current_policy
 
 
 def split_docker_logs(raw: bytes) -> tuple[bytes, bytes]:
@@ -26,13 +29,23 @@ def split_docker_logs(raw: bytes) -> tuple[bytes, bytes]:
 
 
 class DockerEngine:
-    def __init__(self, socket_path: str = "/var/run/docker.sock") -> None:
-        self.client = httpx.Client(
-            base_url="http://docker/v1.45",
-            transport=httpx.HTTPTransport(uds=socket_path),
-            timeout=120,
-            trust_env=False,
-        )
+    """Docker Engine client.
+
+    P0: the manager no longer mounts docker.sock. It talks to the filtering
+    ``sock-proxy`` via ``MOVO_DOCKER_HOST`` (default ``http://sock-proxy:2375``).
+    A ``unix://`` host is accepted only for local development.
+    """
+
+    def __init__(self, docker_host: str | None = None, policy: SandboxPolicy | None = None) -> None:
+        host = docker_host or os.environ.get("MOVO_DOCKER_HOST", "http://sock-proxy:2375")
+        self.policy = policy
+        if host.startswith("unix://"):
+            transport = httpx.HTTPTransport(uds=host.removeprefix("unix://"))
+            base_url = "http://docker/v1.45"
+        else:
+            transport = httpx.HTTPTransport()
+            base_url = host.rstrip("/") + "/v1.45"
+        self.client = httpx.Client(base_url=base_url, transport=transport, timeout=120, trust_env=False)
 
     def request(self, method: str, path: str, **kwargs):
         response = self.client.request(method, path, **kwargs)
@@ -40,7 +53,15 @@ class DockerEngine:
         return response
 
     def create(self, name: str, payload: dict) -> str:
-        return self.request("POST", "/containers/create", params={"name": name}, json=payload).json()["Id"]
+        policy = self.policy or current_policy()
+        labels = payload.get("Labels") or {}
+        payload = policy.apply(payload, tenant_id=labels.get("movo.tenant"), role=labels.get("movo.role"))
+        container_id = self.request("POST", "/containers/create", params={"name": name}, json=payload).json()["Id"]
+        from . import audit
+        audit.emit("sandbox.create", container=container_id[:12], name=name, image=payload.get("Image"),
+                   runtime=payload["HostConfig"]["Runtime"], role=payload["Labels"].get("movo.role"),
+                   tenant=payload["Labels"].get("movo.tenant"))
+        return container_id
 
     def start(self, container_id: str) -> None:
         self.request("POST", f"/containers/{container_id}/start")
