@@ -4,8 +4,7 @@ import { validBearerToken, assertSecureHost } from './host-auth.mjs'
 import { runtimeHealth } from './host-protocol.mjs'
 import { readJson, routeParts, sendJson } from './http-utils.mjs'
 import { RuntimeManager } from './runtime-manager.mjs'
-import { IsolatedPluginRuntimePool } from './isolated-plugin-runtime.mjs'
-import { ContainerPluginRuntimePool } from './container-plugin-runtime.mjs'
+import { selectPluginRuntimePool } from './plugin-runtime-selection.mjs'
 import { admitSessionBody } from './session-admission.mjs'
 import { PluginArchiveMaterializer } from './plugin-archive-materializer.mjs'
 
@@ -24,12 +23,8 @@ export class RuntimeHttpServer {
     this.port = port
     this.authToken = authToken
     this.#manager = new RuntimeManager({ storageRoot })
-    this.#isolated = process.env.MOVO_SANDBOX_MANAGER_URL
-      ? new ContainerPluginRuntimePool({
-          managerUrl: process.env.MOVO_SANDBOX_MANAGER_URL,
-          managerToken: process.env.MOVO_SANDBOX_MANAGER_TOKEN,
-        })
-      : new IsolatedPluginRuntimePool(storageRoot)
+    // Fail-closed (P0): never spawn plugins inside runtime-host in production.
+    this.#isolated = selectPluginRuntimePool({ storageRoot })
     this.#pluginArchives = new PluginArchiveMaterializer(storageRoot)
     this.#server = createServer((request, response) => {
       if (request.url?.startsWith('/v1/sandbox-relay/')) {
