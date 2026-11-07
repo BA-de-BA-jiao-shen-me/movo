@@ -41,6 +41,8 @@ source "${ROOT_DIR}/deploy/cli/pull.sh"
 source "${ROOT_DIR}/deploy/cli/backup.sh"
 # shellcheck source=deploy/cli/sequence-fix.sh
 source "${ROOT_DIR}/deploy/cli/sequence-fix.sh"
+# shellcheck source=deploy/cli/kata.sh
+source "${ROOT_DIR}/deploy/cli/kata.sh"
 # shellcheck source=deploy/cli/sandbox.sh
 source "${ROOT_DIR}/deploy/cli/sandbox.sh"
 movo_sandbox_defaults
@@ -300,6 +302,10 @@ case "${command}" in
   status)
     require_docker
     movo_compose ps
+    ;;
+  doctor)
+    require_docker
+    movo_doctor "$@"
     ;;
   logs)
     require_docker

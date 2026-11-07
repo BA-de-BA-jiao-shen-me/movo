@@ -46,6 +46,12 @@ IMAGES = (
         inputs=("services/sandbox-manager/**",),
     ),
     ImageDefinition(
+        suffix="sock-proxy",
+        context="services/sock-proxy",
+        dockerfile="services/sock-proxy/Dockerfile",
+        inputs=("services/sock-proxy/**",),
+    ),
+    ImageDefinition(
         suffix="sandbox-egress",
         context="services/sandbox-egress",
         dockerfile="services/sandbox-egress/Dockerfile",

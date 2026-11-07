@@ -9,6 +9,7 @@ image_suffixes=(
   sandbox-script
   sandbox-manager
   sandbox-egress
+  sock-proxy
   dsh-runtime-host
   chat-api
   admin-api

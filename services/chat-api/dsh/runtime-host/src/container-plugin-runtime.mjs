@@ -96,6 +96,7 @@ export class ContainerPluginRuntimePool {
     if (this.#byIsolation.has(body.isolationKey)) throw new Error('isolation key already has a Runtime')
     const lease = await managerRequest(this.managerUrl, this.managerToken, 'POST', '/v1/plugin-runtimes', {
       isolation_key: body.isolationKey,
+      ...(body.tenantId ? { tenant_id: String(body.tenantId) } : {}),
     })
     const entry = { ...lease, profile: body.modelProfile, runtime: undefined }
     this.#byLease.set(lease.lease_id, entry)

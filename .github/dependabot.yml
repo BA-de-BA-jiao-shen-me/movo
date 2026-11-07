@@ -1,0 +1,59 @@
+# P0 supply chain: weekly grouped updates with a 7-day cooldown.
+# Security updates are not delayed by cooldown.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directories:
+      - /services/chat-api
+      - /services/admin-api
+      - /services/document-parser
+      - /services/sandbox-manager
+    schedule: { interval: weekly, day: monday }
+    cooldown: { default-days: 7 }
+    open-pull-requests-limit: 10
+    groups:
+      pip-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directories:
+      - /apps/user-web
+      - /apps/admin-web
+      - /qa
+      - /services/chat-api/dsh/runtime-host
+    schedule: { interval: weekly, day: monday }
+    cooldown: { default-days: 7 }
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories:
+      - /services/chat-api
+      - /services/chat-api/dsh/runtime-host
+      - /services/admin-api
+      - /services/document-parser
+      - /services/sandbox-manager
+      - /services/sandbox-egress
+      - /services/sock-proxy
+      - /apps/user-web
+      - /apps/admin-web
+      - /deploy/docker/infra-mirror/alpine
+      - /deploy/docker/infra-mirror/mongo
+      - /deploy/docker/infra-mirror/redis
+      - /deploy/docker/infra-mirror/weaviate
+    schedule: { interval: weekly, day: monday }
+    cooldown: { default-days: 7 }
+    open-pull-requests-limit: 10
+    groups:
+      base-images:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    cooldown: { default-days: 7 }
+    groups:
+      actions:
+        patterns: ["*"]

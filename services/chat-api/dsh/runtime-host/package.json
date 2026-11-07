@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node src/host.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "MOVO_DEV_INPROCESS_PLUGINS=1 node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.5-alpha.1",

@@ -8,13 +8,70 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
+import os
 import socket
+import sys
+import time
 from urllib.parse import urlsplit
 
 
 MAX_HEADER = 16 * 1024
 MAX_CONNECTIONS = 256
 _slots = asyncio.Semaphore(MAX_CONNECTIONS)
+
+# P0 egress policy. Default deny; package registries needed by sandbox builds
+# are allowed out of the box. Extra domains come from MOVO_EGRESS_ALLOW_DOMAINS
+# (comma separated) or the policy file written by admin-api.
+DEFAULT_ALLOWED = (
+    "pypi.org", "files.pythonhosted.org", "registry.npmjs.org", "registry.npmmirror.com",
+    "deb.debian.org", "security.debian.org", "mirrors.aliyun.com", "pypi.tuna.tsinghua.edu.cn",
+    "mirrors.tuna.tsinghua.edu.cn",
+)
+POLICY_FILE = os.environ.get("MOVO_EGRESS_POLICY_FILE", "/state/egress-policy.json")
+
+
+def load_policy(env=None, policy_file: str | None = None) -> tuple[str, frozenset[str]]:
+    env = os.environ if env is None else env
+    mode = (env.get("MOVO_EGRESS_DEFAULT_POLICY") or "deny").strip().lower()
+    if mode not in {"allow", "deny"}:
+        raise SystemExit(f"invalid MOVO_EGRESS_DEFAULT_POLICY={mode!r}")
+    domains = set(DEFAULT_ALLOWED)
+    domains.update(d.strip().lower() for d in (env.get("MOVO_EGRESS_ALLOW_DOMAINS") or "").split(",") if d.strip())
+    path = policy_file or POLICY_FILE
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+        domains.update(str(d).strip().lower() for d in data.get("allow_domains", []) if str(d).strip())
+    except (OSError, ValueError, AttributeError):
+        pass
+    return mode, frozenset(domains)
+
+
+def host_allowed(host: str, mode: str, domains: frozenset[str]) -> bool:
+    if mode == "allow":
+        return True
+    host = host.strip("[]").rstrip(".").lower()
+    try:
+        ipaddress.ip_address(host)
+        return False  # raw IPs bypass domain policy; refuse under deny
+    except ValueError:
+        pass
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
+def audit(event: str, **fields) -> None:
+    record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "event": event, **fields}
+    print(json.dumps(record, sort_keys=True), file=sys.stderr, flush=True)
+
+
+_MODE, _DOMAINS = load_policy()
+
+
+def _check_policy(host: str) -> None:
+    if not host_allowed(host, _MODE, _DOMAINS):
+        audit("egress.denied", host=host, reason="not in allowlist")
+        raise PermissionError("Destination is not allowlisted")
 
 
 async def _public_destination(host: str, port: int) -> tuple[str, int]:
@@ -25,6 +82,7 @@ async def _public_destination(host: str, port: int) -> tuple[str, int]:
         ip = ipaddress.ip_address(address[0])
         if ip.is_global:
             return str(ip), port
+    audit("egress.denied", host=host, reason="resolves to non-public address")
     raise PermissionError("Destination is not public")
 
 
@@ -55,6 +113,7 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
                 host, separator, port_text = target.rpartition(":")
                 if not separator or not port_text.isdigit():
                     raise ValueError("Invalid CONNECT target")
+                _check_policy(host)
                 address = await _public_destination(host.strip("[]"), int(port_text))
                 upstream_reader, upstream_writer = await asyncio.wait_for(asyncio.open_connection(*address), timeout=15)
                 upstream = upstream_writer
@@ -63,6 +122,7 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
                 url = urlsplit(target)
                 if url.scheme != "http" or not url.hostname or url.username or url.password:
                     raise ValueError("Only plain HTTP absolute URLs are accepted")
+                _check_policy(url.hostname)
                 address = await _public_destination(url.hostname, url.port or 80)
                 upstream_reader, upstream_writer = await asyncio.wait_for(asyncio.open_connection(*address), timeout=15)
                 upstream = upstream_writer
@@ -72,13 +132,18 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
                 raise ValueError("Unsupported proxy method")
             await upstream_writer.drain()
             await asyncio.gather(_pipe(reader, upstream_writer), _pipe(upstream_reader, writer))
+        except asyncio.IncompleteReadError:
+            pass  # client closed before sending a request (e.g. TCP health checks)
         except (ValueError, PermissionError, asyncio.TimeoutError, asyncio.LimitOverrunError, OSError):
             writer.write(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
         finally:
             if upstream is not None:
                 upstream.close()
             writer.close()
-            await writer.wait_closed()
+            try:
+                await writer.wait_closed()
+            except (ConnectionError, OSError):
+                pass
 
 
 async def main() -> None:

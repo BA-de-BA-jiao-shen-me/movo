@@ -46,7 +46,7 @@ jobs:
           for suffix in "${suffixes[@]}"; do
             suffix="${suffix//[[:space:]]/}"
             case "$suffix" in
-              dsh-runtime-host|chat-api|admin-api|document-parser|user-web|admin-web|gateway|sandbox-manager|sandbox-egress|sandbox-script) ;;
+              dsh-runtime-host|chat-api|admin-api|document-parser|user-web|admin-web|gateway|sandbox-manager|sandbox-egress|sock-proxy|sandbox-script) ;;
               *)
                 echo "Unsupported image suffix: $suffix" >&2
                 exit 2

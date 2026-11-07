@@ -8,6 +8,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .sandbox_policy import read_tenant_marker
 from .docker_engine import DockerEngine
 from .skill_environments import SkillEnvironments
 from .task_lease_store import TaskLeaseStore
@@ -173,7 +174,8 @@ class TaskContainers:
                     "Memory": 1024 * 1024 * 1024, "NanoCpus": 1_000_000_000,
                     "Tmpfs": {"/tmp": "rw,nosuid,exec,size=64m"}, "Mounts": mounts,
                 },
-                "Labels": {"movo.role": "script-task", "movo.task": task_id},
+                "Labels": {"movo.role": "script-task", "movo.task": task_id,
+                           **({"movo.tenant": tenant_id} if (tenant_id := read_tenant_marker(self.root / task_id)) else {})},
             })
             self.engine.start(container_id)
             return TaskLease(container_id, network_id, proxy_id, digest, image)

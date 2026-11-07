@@ -10,7 +10,7 @@ if [[ ! "${source_sha}" =~ ^[0-9a-f]{40}$ ]]; then
 fi
 
 registry="registry.cn-beijing.aliyuncs.com/himovo-cn/movo"
-services=(user-web dsh-runtime-host chat-api admin-api document-parser admin-web gateway sandbox-manager sandbox-egress sandbox-script)
+services=(user-web dsh-runtime-host chat-api admin-api document-parser admin-web gateway sandbox-manager sandbox-egress sock-proxy sandbox-script)
 infra=("mongo:6.0.20" "redis:7.4.2-alpine" "weaviate:1.25.7" "alpine:3.21")
 
 require_platform() {

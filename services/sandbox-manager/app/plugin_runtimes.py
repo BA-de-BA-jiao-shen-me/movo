@@ -31,7 +31,7 @@ class PluginRuntimes:
         with self._lock:
             return {"plugin_runtimes": len(self._leases)}
 
-    def create(self, isolation_key: str) -> dict:
+    def create(self, isolation_key: str, tenant_id: str | None = None) -> dict:
         if not isolation_key or len(isolation_key) > 512:
             raise ValueError("Invalid Runtime isolation key")
         with self._lock:
@@ -39,12 +39,15 @@ class PluginRuntimes:
                 raise ValueError("Runtime creation is already in progress")
             self._creating.add(isolation_key)
         try:
-            return self._create(isolation_key)
+            return self._create(isolation_key, tenant_id)
         finally:
             with self._lock:
                 self._creating.discard(isolation_key)
 
-    def _create(self, isolation_key: str) -> dict:
+    def _create(self, isolation_key: str, tenant_id: str | None = None) -> dict:
+        if tenant_id:
+            # Leases and storage are namespaced per tenant; never shared across tenants.
+            isolation_key = f"tenant:{tenant_id}\x00{isolation_key}"
         with self._lock:
             previous = next((item["lease_id"] for item in self._leases.values()
                              if item.get("isolation_key") == isolation_key), None)
@@ -106,7 +109,8 @@ class PluginRuntimes:
                     "Tmpfs": {"/tmp": "rw,exec,nosuid,size=64m"},
                     "Mounts": mounts,
                 },
-                "Labels": {"movo.role": "plugin-runtime", "movo.lease": lease_id, "movo.project": self.project},
+                "Labels": {"movo.role": "plugin-runtime", "movo.lease": lease_id, "movo.project": self.project,
+                           **({"movo.tenant": tenant_id} if tenant_id else {})},
             }
             container_id = self.engine.create(name, payload)
             self.engine.start(container_id)

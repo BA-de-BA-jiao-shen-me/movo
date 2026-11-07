@@ -102,6 +102,7 @@ ppt/
 .github/
 !.github/
 .github/*
+!.github/dependabot.yml
 !.github/workflows/
 .github/workflows/*
 !.github/workflows/dsh-migration-step1.yml
@@ -109,6 +110,7 @@ ppt/
 !.github/workflows/dsh-upgrade-candidate.yml
 !.github/workflows/container-release.yml
 !.github/workflows/container-promote.yml
+!.github/workflows/security-gate.yml
 !.github/security/
 .github/security/*
 !.github/security/document-parser.trivyignore.yaml

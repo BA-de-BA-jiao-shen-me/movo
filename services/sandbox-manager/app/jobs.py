@@ -7,6 +7,7 @@ import re
 import threading
 from pathlib import Path
 
+from .sandbox_policy import read_tenant_marker
 from .docker_engine import DockerEngine, split_docker_logs
 from .settings_store import SettingsStore
 from .skill_environments import SkillEnvironments
@@ -60,6 +61,7 @@ class ScriptJobs:
         if skill_digest and (not SKILL_DIGEST.fullmatch(skill_digest) or
                              not (self.root / "skill-cache" / skill_digest).is_dir()):
             raise ValueError("Selected Skill package is unavailable")
+        tenant_id = read_tenant_marker(job_dir)
         image = self.environments.ready_image(skill_digest) if skill_digest else self.image
         with self._state_lock:
             if self._pending >= self._max_pending:
@@ -111,7 +113,8 @@ class ScriptJobs:
                         "VolumeOptions": {"Subpath": f"skill-cache/{skill_digest}", "NoCopy": True},
                     }] if skill_digest else []),
                 },
-                "Labels": {"movo.role": "script-job", "movo.job": job_id},
+                "Labels": {"movo.role": "script-job", "movo.job": job_id,
+                           **({"movo.tenant": tenant_id} if tenant_id else {})},
             }
             container_id = self.engine.create(f"movo-script-{job_id}", payload)
             self.engine.start(container_id)
